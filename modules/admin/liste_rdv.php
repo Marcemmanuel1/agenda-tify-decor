@@ -266,7 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .btn-view {
             padding: 0.3rem 0.8rem;
             background-color: var(--doré-foncé);
-            color: white;
+            color: white; 
             border: none;
             border-radius: 4px;
             cursor: pointer;
@@ -277,7 +277,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             background-color: var(--doré-clair);
         }
         
-        /* Pagination */
         .pagination {
             display: flex;
             justify-content: center;
