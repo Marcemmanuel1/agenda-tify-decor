@@ -1,0 +1,134 @@
+
+:root {
+    --dore-fonce: #8B5A2B;
+    --dore-clair: #C89B66;
+    --ivoire: #F5F1EB;
+    --blanc: #FFFFFF;
+    --gris-anthracite: #333333;
+    --vert-sage: #8A9A5B;
+}
+
+body {
+    background: #f5ddc6ff;
+    font-family: 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+    margin: 0;
+}
+
+.login-container {
+    width: 100%;
+    max-width: 420px;
+    margin: 0 auto;
+    background: #f5ddc6ff;
+    padding: clamp(1.5rem, 4vw, 2rem);
+    border-radius: 18px;
+    box-shadow: 0 6px 18px rgba(0,0,0,0.15);
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.login-header {
+    text-align: center;
+    margin-bottom: 1rem;
+}
+
+.login-header img {
+    max-width: clamp(80px, 20vw, 90px);
+    margin-bottom: 15px;
+    height: auto;
+}
+
+.login-header h1 {
+    font-size: clamp(1.2rem, 4vw, 1.4rem);
+    font-weight: bold;
+    color: #8B5A2B;
+    margin: 0;
+    line-height: 1.3;
+}
+
+.form-label {
+    font-weight: 500;
+    color: var(--gris-anthracite);
+    font-size: clamp(0.9rem, 3vw, 1rem);
+}
+
+.form-control {
+    border-radius: 10px;
+    padding: clamp(0.75rem, 2vw, 0.75rem);
+    border: 1px solid var(--dore-clair);
+    font-size: clamp(0.9rem, 3vw, 1rem);
+}
+
+.form-control:focus {
+    border-color: var(--dore-fonce);
+    box-shadow: 0 0 5px var(--dore-clair);
+}
+
+.btn-primary {
+    background: #FFFFFF;
+    border: none;
+    border-radius: 12px;
+    padding: clamp(0.75rem, 2vw, 0.75rem) clamp(1.5rem, 4vw, 1.875rem);
+    color: var(--dore-fonce);
+    font-weight: bold;
+    display: block;
+    margin: 20px auto;
+    transition: all 0.3s ease;
+    font-size: clamp(0.9rem, 3vw, 1rem);
+    width: 100%;
+    max-width: 200px;
+}
+
+.btn-primary:hover {
+    background: var(--dore-clair);
+    color: #fff;
+    transform: scale(1.05);
+}
+
+.alert {
+    border-radius: 8px;
+    font-size: clamp(0.85rem, 3vw, 0.95rem);
+    padding: 0.75rem;
+}
+
+.login-form {
+    margin-top: 1rem;
+}
+
+.mb-3 {
+    margin-bottom: 1rem !important;
+}
+
+/* Responsive pour très petits écrans */
+@media (max-width: 375px) {
+    body {
+        padding: 0.5rem;
+    }
+    
+    .login-container {
+        padding: 1.25rem;
+    }
+    
+    .btn-primary {
+        max-width: 100%;
+    }
+}
+
+/* Pour les écrans plus larges */
+@media (min-width: 768px) {
+    .login-container {
+        max-width: 450px;
+    }
+}
+
+/* Pour éviter le zoom sur iOS */
+@media (max-width: 480px) {
+    input, select, textarea {
+        font-size: 16px !important;
+    }
+}
