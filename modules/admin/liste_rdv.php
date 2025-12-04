@@ -25,6 +25,11 @@ $filters = [
     'livraison' => isset($_GET['livraison']) ? $_GET['livraison'] : ''
 ];
 
+// Paramètres de pagination
+$items_par_page = 20;
+$page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
+$offset = ($page - 1) * $items_par_page;
+
 // Construction de la requête avec filtres
 $sql = "SELECT r.*, 
                c.nom as client_nom, c.prenom as client_prenom, c.commune, c.telephone, c.canal, c.genre,
@@ -40,101 +45,107 @@ $sql = "SELECT r.*,
         LEFT JOIN chantiers ch ON r.id = ch.rdv_id
         WHERE 1=1";
 
-$params = [];
+$sql_count = "SELECT COUNT(*) as total
+              FROM rendezvous r
+              JOIN clients c ON r.client_id = c.id
+              JOIN users up ON r.planificateur_id = up.id
+              LEFT JOIN users ua ON r.agent_id = ua.id
+              LEFT JOIN chantiers ch ON r.id = ch.rdv_id
+              WHERE 1=1";
 
-// Ajout des filtres
+$params = [];
+$params_count = [];
+
+// Ajout des filtres aux deux requêtes
 if (!empty($filters['statut'])) {
     $sql .= " AND r.statut_rdv = ?";
+    $sql_count .= " AND r.statut_rdv = ?";
     $params[] = $filters['statut'];
+    $params_count[] = $filters['statut'];
 }
 
 if (!empty($filters['commune'])) {
     $sql .= " AND c.commune LIKE ?";
+    $sql_count .= " AND c.commune LIKE ?";
     $params[] = '%' . $filters['commune'] . '%';
+    $params_count[] = '%' . $filters['commune'] . '%';
 }
 
 if (!empty($filters['date_debut'])) {
     $sql .= " AND r.date_rdv >= ?";
+    $sql_count .= " AND r.date_rdv >= ?";
     $params[] = date('Y-m-d', strtotime($filters['date_debut'])) . ' 00:00:00';
+    $params_count[] = date('Y-m-d', strtotime($filters['date_debut'])) . ' 00:00:00';
 }
 
 if (!empty($filters['date_fin'])) {
     $sql .= " AND r.date_rdv <= ?";
+    $sql_count .= " AND r.date_rdv <= ?";
     $params[] = date('Y-m-d', strtotime($filters['date_fin'])) . ' 23:59:59';
+    $params_count[] = date('Y-m-d', strtotime($filters['date_fin'])) . ' 23:59:59';
 }
 
 if (!empty($filters['search'])) {
     $sql .= " AND (c.nom LIKE ? OR c.prenom LIKE ? OR c.telephone LIKE ? OR r.motif LIKE ?)";
+    $sql_count .= " AND (c.nom LIKE ? OR c.prenom LIKE ? OR c.telephone LIKE ? OR r.motif LIKE ?)";
     $search_term = '%' . $filters['search'] . '%';
     $params[] = $search_term;
     $params[] = $search_term;
     $params[] = $search_term;
     $params[] = $search_term;
+    $params_count[] = $search_term;
+    $params_count[] = $search_term;
+    $params_count[] = $search_term;
+    $params_count[] = $search_term;
 }
 
 if (!empty($filters['planificateur'])) {
     $sql .= " AND r.planificateur_id = ?";
+    $sql_count .= " AND r.planificateur_id = ?";
     $params[] = $filters['planificateur'];
+    $params_count[] = $filters['planificateur'];
 }
 
 if (!empty($filters['agent'])) {
     $sql .= " AND r.agent_id = ?";
+    $sql_count .= " AND r.agent_id = ?";
     $params[] = $filters['agent'];
+    $params_count[] = $filters['agent'];
 }
 
 if (!empty($filters['statut_chantier'])) {
     if ($filters['statut_chantier'] === 'sans_chantier') {
         $sql .= " AND ch.id IS NULL";
+        $sql_count .= " AND ch.id IS NULL";
     } else {
         $sql .= " AND ch.statut_travaux = ?";
+        $sql_count .= " AND ch.statut_travaux = ?";
         $params[] = $filters['statut_chantier'];
+        $params_count[] = $filters['statut_chantier'];
     }
 }
 
 if (!empty($filters['livraison'])) {
     $sql .= " AND ch.livraison = ?";
+    $sql_count .= " AND ch.livraison = ?";
     $params[] = $filters['livraison'];
+    $params_count[] = $filters['livraison'];
 }
 
-$sql .= " ORDER BY r.date_rdv DESC";
+// CORRECTION : Ajout du tri et de la pagination SANS paramètres préparés
+$sql .= " ORDER BY r.date_rdv DESC LIMIT " . intval($items_par_page) . " OFFSET " . intval($offset);
 
-// Exécution de la requête
+// Exécution de la requête pour le comptage
+$stmt_count = $db->prepare($sql_count);
+$stmt_count->execute($params_count);
+$total_result = $stmt_count->fetch(PDO::FETCH_ASSOC);
+$total_items = $total_result['total'];
+$total_pages = ceil($total_items / $items_par_page);
+
+// Exécution de la requête pour les données
 $stmt = $db->prepare($sql);
-$stmt->execute($params);
+$stmt->execute($params); // CORRECTION : On exécute seulement avec les params, pas avec LIMIT/OFFSET
 $rendezvous = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Récupérer les communes distinctes pour le filtre
-$communes_stmt = $db->prepare("SELECT DISTINCT commune FROM clients ORDER BY commune");
-$communes_stmt->execute();
-$communes = $communes_stmt->fetchAll(PDO::FETCH_COLUMN);
-
-// Récupérer les planificateurs
-$planificateurs_stmt = $db->prepare("SELECT id, nom, prenom FROM users WHERE role = 'planificateur' ORDER BY nom, prenom");
-$planificateurs_stmt->execute();
-$planificateurs = $planificateurs_stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Récupérer les agents
-$agents_stmt = $db->prepare("SELECT id, nom, prenom FROM users WHERE role = 'agent' ORDER BY nom, prenom");
-$agents_stmt->execute();
-$agents = $agents_stmt->fetchAll(PDO::FETCH_ASSOC);
-
-// Statistiques des chantiers
-$stats_query = "SELECT 
-    COUNT(CASE WHEN ch.id IS NOT NULL THEN 1 END) as total_chantiers,
-    COUNT(CASE WHEN ch.statut_travaux = 'en_attente' THEN 1 END) as chantiers_attente,
-    COUNT(CASE WHEN ch.statut_travaux = 'en_cours' THEN 1 END) as chantiers_en_cours,
-    COUNT(CASE WHEN ch.statut_travaux = 'termine' THEN 1 END) as chantiers_termines,
-    COUNT(CASE WHEN ch.livraison = 'a_temps' THEN 1 END) as livraisons_a_temps,
-    COUNT(CASE WHEN ch.livraison = 'en_avance' THEN 1 END) as livraisons_avance,
-    COUNT(CASE WHEN ch.livraison = 'en_retard' THEN 1 END) as livraisons_retard,
-    COUNT(CASE WHEN ch.statut_devis = 'accepte' THEN 1 END) as devis_acceptes,
-    COUNT(CASE WHEN ch.statut_devis = 'envoye' THEN 1 END) as devis_envoyes,
-    COUNT(CASE WHEN ch.statut_devis = 'refuse' THEN 1 END) as devis_refuses
-    FROM rendezvous r
-    LEFT JOIN chantiers ch ON r.id = ch.rdv_id";
-
-$stats_stmt = $db->query($stats_query);
-$statistiques = $stats_stmt->fetch(PDO::FETCH_ASSOC);
 
 // Suppression d'un rendez-vous
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
@@ -145,10 +156,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($rdv_id && $motif_suppression) {
             try {
                 $db->beginTransaction();
-                
-                // Log de la suppression
-                $stmt = $db->prepare("INSERT INTO logs_suppression (rdv_id, user_id, motif_suppression) VALUES (?, ?, ?)");
-                $stmt->execute([$rdv_id, $_SESSION['user_id'], $motif_suppression]);
                 
                 // Suppression du chantier si existe
                 $stmt = $db->prepare("DELETE FROM chantiers WHERE rdv_id = ?");
@@ -268,6 +275,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         .btn-view:hover {
             background-color: var(--doré-clair);
+        }
+        
+        /* Pagination */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 0.5rem;
+            margin-top: 1.5rem;
+            padding: 1rem 0;
+        }
+        
+        .pagination-btn {
+            padding: 0.5rem 1rem;
+            border: 1px solid #ddd;
+            background-color: white;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .pagination-btn:hover:not(:disabled) {
+            background-color: var(--doré-foncé);
+            color: white;
+            border-color: var(--doré-foncé);
+        }
+        
+        .pagination-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination-current {
+            padding: 0.5rem 1rem;
+            background-color: var(--doré-foncé);
+            color: white;
+            border-radius: 4px;
+        }
+        
+        .pagination-info {
+            margin-right: 1rem;
+            color: var(--gris-anthracite);
+        }
+        
+        .page-input {
+            width: 60px;
+            padding: 0.5rem;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            text-align: center;
         }
         
         /* Modal styles */
@@ -410,6 +467,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             font-size: 0.9rem;
             color: var(--gris-anthracite);
         }
+        .status-cell {
+            display: flex;
+            gap: 5px;
+        }
         
         .etape-date-modal {
             font-size: 0.8rem;
@@ -429,40 +490,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <?php echo $message; ?>
         
-        <!-- Statistiques des chantiers -->
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-value"><?= $statistiques['total_chantiers'] ?></div>
-                <div class="stat-label">Chantiers créés</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-value"><?= $statistiques['chantiers_en_cours'] ?></div>
-                <div class="stat-label">En cours</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-value"><?= $statistiques['chantiers_termines'] ?></div>
-                <div class="stat-label">Terminés</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-value"><?= $statistiques['devis_acceptes'] ?></div>
-                <div class="stat-label">Devis acceptés</div>
-            </div>
-            
-            <div class="stat-card">
-                <div class="stat-value"><?= $statistiques['livraisons_a_temps'] + $statistiques['livraisons_avance'] ?></div>
-                <div class="stat-label">Livraisons OK</div>
-            </div>
-        </div>
-        
         <div class="card">
             <div class="card-header">
                 <h2 class="card-title">Filtres de recherche</h2>
             </div>
             
             <form method="GET" class="filter-form">
+                <input type="hidden" name="page" value="1">
                 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem;">
                     <div class="form-group">
                         <label for="statut">Statut RDV</label>
@@ -511,9 +545,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         
         <div class="card">
             <div class="card-header">
-                <h2 class="card-title">Rendez-vous (<?= count($rendezvous) ?>)</h2>
+                <h2 class="card-title">Rendez-vous</h2>
                 <div>
-                    <span class="badge"><?= count($rendezvous) ?> résultats</span>
+                    <span class="badge"><?= $total_items ?> résultats</span>
+                    <span class="badge">Page <?= $page ?>/<?= $total_pages ?></span>
                 </div>
             </div>
             
@@ -562,7 +597,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                 <strong><?= htmlspecialchars($rdv['client_prenom'] . ' ' . $rdv['client_nom']) ?></strong><br>
                             </td>
                             <td><?= date('d/m/Y H:i', strtotime($rdv['date_rdv'])) ?></td>                            
-                            <td>
+                            <td class="status-cell">
                                 <span class="badge <?= $statut_class ?>"><?= $rdv['statut_rdv'] ?></span><br>
                                 <span class="badge <?= $paiement_class ?>"><?= $rdv['statut_paiement'] ?></span>
                             </td>
@@ -594,13 +629,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                             </td>
                             <td>
                                 <button class="btn-view" onclick="openDetailsModal(<?= $rdv['id'] ?>)">
-                                    <i class="fas fa-eye"></i> Voir
+                                    <i class="fas fa-eye"></i>
                                 </button>
                             </td>
                         </tr>
                         <?php endforeach; ?>
                     </tbody>
                 </table>
+                
+                <!-- Pagination -->
+                <?php if ($total_pages > 1): ?>
+                <div class="pagination">
+                    <div class="pagination-info">
+                        Affichage <?= (($page - 1) * $items_par_page) + 1 ?> - <?= min($page * $items_par_page, $total_items) ?> sur <?= $total_items ?>
+                    </div>
+                    
+                    <button class="pagination-btn" 
+                            onclick="goToPage(1)" 
+                            <?= $page <= 1 ? 'disabled' : '' ?>>
+                        <i class="fas fa-angle-double-left"></i>
+                    </button>
+                    
+                    <button class="pagination-btn" 
+                            onclick="goToPage(<?= $page - 1 ?>)" 
+                            <?= $page <= 1 ? 'disabled' : '' ?>>
+                        <i class="fas fa-angle-left"></i>
+                    </button>
+                    
+                    <?php 
+                    // Afficher les numéros de page
+                    $start_page = max(1, $page - 2);
+                    $end_page = min($total_pages, $page + 2);
+                    
+                    if ($start_page > 1) {
+                        echo '<span>...</span>';
+                    }
+                    
+                    for ($i = $start_page; $i <= $end_page; $i++): 
+                    ?>
+                        <?php if ($i == $page): ?>
+                            <span class="pagination-current"><?= $i ?></span>
+                        <?php else: ?>
+                            <button class="pagination-btn" onclick="goToPage(<?= $i ?>)"><?= $i ?></button>
+                        <?php endif; ?>
+                    <?php endfor; ?>
+                    
+                    <?php if ($end_page < $total_pages): ?>
+                        <span>...</span>
+                        <button class="pagination-btn" onclick="goToPage(<?= $total_pages ?>)"><?= $total_pages ?></button>
+                    <?php endif; ?>
+                    
+                    <button class="pagination-btn" 
+                            onclick="goToPage(<?= $page + 1 ?>)" 
+                            <?= $page >= $total_pages ? 'disabled' : '' ?>>
+                        <i class="fas fa-angle-right"></i>
+                    </button>
+                    
+                    <button class="pagination-btn" 
+                            onclick="goToPage(<?= $total_pages ?>)" 
+                            <?= $page >= $total_pages ? 'disabled' : '' ?>>
+                        <i class="fas fa-angle-double-right"></i>
+                    </button>
+                </div>
+                <?php endif; ?>
             </div>
             <?php else: ?>
             <div style="text-align: center; padding: 2rem;">
@@ -623,34 +714,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         </div>
     </div>
     
-    <!-- Modal de suppression -->
-    <div id="deleteModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5); z-index: 1000;">
-        <div style="background-color: white; width: 500px; margin: 100px auto; padding: 20px; border-radius: 8px;">
-            <h2>Supprimer le rendez-vous</h2>
-            <p>Vous êtes sur le point de supprimer le rendez-vous avec <strong id="delete-client-name"></strong>.</p>
-            <p>Cette action est irréversible. Veuillez indiquer le motif de la suppression.</p>
-            
-            <form method="POST" id="deleteForm">
-                <input type="hidden" name="rdv_id" id="delete-rdv-id">
-                
-                <div class="form-group">
-                    <label for="motif_suppression">Motif de suppression *</label>
-                    <textarea id="motif_suppression" name="motif_suppression" class="form-control" rows="4" required></textarea>
-                </div>
-                
-                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 20px;">
-                    <button type="button" class="btn btn-secondary" onclick="document.getElementById('deleteModal').style.display = 'none'">Annuler</button>
-                    <button type="submit" name="delete_rdv" class="btn btn-danger">Confirmer la suppression</button>
-                </div>
-            </form>
-        </div>
-    </div>
-    
     <script src="../../js/script.js"></script>
     <script>
-        // Données pour le modal (simulées - en production, charger via AJAX)
+        // Données pour le modal
         const rdvDetails = <?= json_encode($rendezvous) ?>;
         
+        // Fonctions de pagination
+        function goToPage(pageNumber) {
+            const url = new URL(window.location);
+            url.searchParams.set('page', pageNumber);
+            window.location.href = url.toString();
+        }
+        
+        // Fonctions pour le modal de détails
         function openDetailsModal(rdvId) {
             const rdv = rdvDetails.find(r => r.id == rdvId);
             if (!rdv) return;
@@ -868,47 +944,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         document.getElementById('detailsModal').addEventListener('click', function(e) {
             if (e.target === this) {
                 closeDetailsModal();
-            }
-        });
-        
-        // Gestion de la modal de suppression
-        document.querySelectorAll('.delete-rdv').forEach(button => {
-            button.addEventListener('click', function() {
-                const id = this.getAttribute('data-id');
-                const clientName = this.getAttribute('data-client');
-                
-                document.getElementById('delete-rdv-id').value = id;
-                document.getElementById('delete-client-name').textContent = clientName;
-                
-                document.getElementById('deleteModal').style.display = 'block';
-            });
-        });
-        
-        // Export des données RDV
-        document.getElementById('export-btn').addEventListener('click', function() {
-            const params = new URLSearchParams(window.location.search);
-            window.open('export_rdv.php?' + params.toString(), '_blank');
-        });
-        
-        // Export des données chantiers
-        document.getElementById('export-chantiers-btn').addEventListener('click', function() {
-            const params = new URLSearchParams(window.location.search);
-            params.append('export_type', 'chantiers');
-            window.open('export_chantiers.php?' + params.toString(), '_blank');
-        });
-        
-        // Fermer la modal de suppression en cliquant à l'extérieur
-        document.getElementById('deleteModal').addEventListener('click', function(e) {
-            if (e.target === this) {
-                this.style.display = 'none';
-            }
-        });
-        
-        // Mettre à jour le filtre de date fin lorsque date début change
-        document.getElementById('date_debut').addEventListener('change', function() {
-            const dateFin = document.getElementById('date_fin');
-            if (!dateFin.value && this.value) {
-                dateFin.value = this.value;
             }
         });
     </script>
